@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Voice Memo Analyzer</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 900px;
+      margin: 40px auto;
+      padding: 0 16px;
+      line-height: 1.5;
+    }
+    h1 { margin-bottom: 8px; }
+    .card {
+      border: 1px solid #ddd;
+      border-radius: 10px;
+      padding: 16px;
+      margin-bottom: 20px;
+    }
+    button {
+      margin-right: 10px;
+      margin-top: 10px;
+      padding: 10px 14px;
+      cursor: pointer;
+    }
+    .tag {
+      display: inline-block;
+      background: #eef2ff;
+      border-radius: 999px;
+      padding: 6px 10px;
+      margin: 4px 6px 4px 0;
+      font-size: 14px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+    }
+    th, td {
+      border: 1px solid #ddd;
+      padding: 8px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th { background: #f7f7f7; }
+    .hidden { display: none; }
+    pre {
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      background: #fafafa;
+      padding: 12px;
+      border-radius: 8px;
+      border: 1px solid #eee;
+    }
+    .muted { color: #666; }
+  </style>
+</head>
+<body>
+  <h1>Voice Memo Analyzer</h1>
+  <p class="muted">Upload a WAV/MP3 file and process it through Speech → Language → TTS.</p>
+
+  <div class="card">
+    <h2>Input</h2>
+
+    <p><strong>Upload a WAV or MP3 file:</strong></p>
+    <input type="file" id="audioFile" accept=".wav,.mp3,audio/wav,audio/mpeg" />
+
+    <div style="margin-top: 16px;">
+      <button id="submitBtn">Submit</button>
+    </div>
+
+    <p id="selectedSource" class="muted">No file selected yet.</p>
+  </div>
+
+  <div class="card">
+    <h2>Status</h2>
+    <p id="statusText">Idle.</p>
+  </div>
+
+  <div id="resultsSection" class="hidden">
+    <div class="card">
+      <h2>Transcript</h2>
+      <pre id="transcriptText"></pre>
+      <p id="languageText"></p>
+      <p id="confidenceText"></p>
+      <p id="durationText"></p>
+    </div>
+
+    <div class="card">
+      <h2>Key Phrases</h2>
+      <div id="keyPhrasesContainer"></div>
+    </div>
+
+    <div class="card">
+      <h2>Named Entities</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Text</th>
+            <th>Category</th>
+            <th>Subcategory</th>
+            <th>Confidence</th>
+          </tr>
+        </thead>
+        <tbody id="entitiesTableBody"></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>Sentiment</h2>
+      <p id="sentimentLabel"></p>
+      <pre id="sentimentScores"></pre>
+    </div>
+
+    <div class="card">
+      <h2>TTS Summary</h2>
+      <pre id="summaryText"></pre>
+      <audio id="summaryAudio" controls></audio>
+    </div>
+  </div>
+
+  <script>
+    const audioFileInput = document.getElementById("audioFile");
+    const submitBtn = document.getElementById("submitBtn");
+    const selectedSource = document.getElementById("selectedSource");
+    const statusText = document.getElementById("statusText");
+
+    const resultsSection = document.getElementById("resultsSection");
+    const transcriptText = document.getElementById("transcriptText");
+    const languageText = document.getElementById("languageText");
+    const confidenceText = document.getElementById("confidenceText");
+    const durationText = document.getElementById("durationText");
+    const keyPhrasesContainer = document.getElementById("keyPhrasesContainer");
+    const entitiesTableBody = document.getElementById("entitiesTableBody");
+    const sentimentLabel = document.getElementById("sentimentLabel");
+    const sentimentScores = document.getElementById("sentimentScores");
+    const summaryText = document.getElementById("summaryText");
+    const summaryAudio = document.getElementById("summaryAudio");
+
+    audioFileInput.addEventListener("change", function () {
+      const file = audioFileInput.files[0];
+      if (file) {
+        selectedSource.textContent = "Selected file: " + file.name;
+      } else {
+        selectedSource.textContent = "No file selected yet.";
+      }
+    });
+
+    submitBtn.addEventListener("click", async function () {
+      const file = audioFileInput.files[0];
+
+      if (!file) {
+        statusText.textContent = "Please select a file first.";
+        return;
+      }
+
+      resultsSection.classList.add("hidden");
+      statusText.textContent = "Uploading and processing...";
+
+      try {
+        const formData = new FormData();
+        formData.append("audio", file);
+
+        const response = await fetch("/process", {
+          method: "POST",
+          body: formData
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          statusText.textContent = "Error: " + (data.error || "Request failed.");
+          return;
+        }
+
+        statusText.textContent = "Processing complete.";
+        renderResults(data);
+      } catch (err) {
+        statusText.textContent = "Request failed: " + err.message;
+      }
+    });
+
+    function renderResults(data) {
+      resultsSection.classList.remove("hidden");
+
+      transcriptText.textContent = data.transcript || "";
+      languageText.textContent = "Language: " + (data.language || "N/A");
+      confidenceText.textContent = "Confidence: " + (data.confidence ?? "N/A");
+      durationText.textContent = "Duration (seconds): " + (data.duration_seconds ?? "N/A");
+
+      keyPhrasesContainer.innerHTML = "";
+      (data.key_phrases || []).forEach(function (phrase) {
+        const span = document.createElement("span");
+        span.className = "tag";
+        span.textContent = phrase;
+        keyPhrasesContainer.appendChild(span);
+      });
+
+      entitiesTableBody.innerHTML = "";
+      (data.entities || []).forEach(function (entity) {
+        const row = document.createElement("tr");
+        row.innerHTML =
+          "<td>" + (entity.text || "") + "</td>" +
+          "<td>" + (entity.category || "") + "</td>" +
+          "<td>" + (entity.subCategory || "") + "</td>" +
+          "<td>" + (entity.confidenceScore ?? "") + "</td>";
+        entitiesTableBody.appendChild(row);
+      });
+
+      sentimentLabel.textContent = "Sentiment: " + (data.sentiment?.label || "N/A");
+      sentimentScores.textContent = JSON.stringify(
+        data.sentiment?.confidenceScores || {},
+        null,
+        2
+      );
+
+      summaryText.textContent = data.summary_text || "";
+
+      if (data.summary_audio_base64) {
+        summaryAudio.src = "data:audio/mp3;base64," + data.summary_audio_base64;
+      } else {
+        summaryAudio.removeAttribute("src");
+      }
+    }
+  </script>
+</body>
+</html>

@@ -55,7 +55,7 @@ const upload = multer({
     if (ext !== ".wav") {
       return cb(
         new Error(
-          "Unsupported Media Type. Only WAV files are supported in the Azure deployment version."
+          "Unsupported Media Type. Only WAV files are supported in this version."
         )
       );
     }
@@ -69,15 +69,12 @@ const upload = multer({
 const meter = metrics.getMeter("memo-analyzer");
 const tracer = trace.getTracer("memo-analyzer");
 
-/* Histograms required by Part G */
 const stageSttHist = meter.createHistogram("stage_stt_ms");
 const stageLanguageHist = meter.createHistogram("stage_language_ms");
 const stageTtsHist = meter.createHistogram("stage_tts_ms");
 
-/* In-memory session log for /telemetry-summary */
 const sessionLog = [];
 
-/* Observable gauges / counters via shared state */
 const latestMetricState = {
   stt_confidence: 0,
   stt_duration_seconds: 0,
@@ -172,14 +169,13 @@ function logPipelineCall(sttResult, langResult, timings, summaryText) {
     languageMs: timings.languageMs,
     ttsMs: timings.ttsMs,
     durationSeconds: Number(sttResult.duration_seconds ?? 0),
-    wordCount: Array.isArray(sttResult.words) ? sttResult.words.length : 0,
+    wordCount: Array.isArray(sttResult.words)
+      ? sttResult.words.length
+      : (sttResult.transcript || "").trim().split(/\s+/).filter(Boolean).length,
     ttsCharCount: typeof summaryText === "string" ? summaryText.length : 0,
   });
 }
 
-/* -------------------------
-   Helpers
--------------------------- */
 async function safeDelete(filePath) {
   if (!filePath) return;
   try {
@@ -389,9 +385,6 @@ function synthesizeSpeechToBase64(text) {
 /* -------------------------
    Routes
 -------------------------- */
-app.get("/", (req, res) => {
-  res.send("Azure server is alive");
-});
 
 app.post("/transcribe", upload.single("audio"), async (req, res) => {
   let uploadedPath = null;
@@ -412,7 +405,7 @@ app.post("/transcribe", upload.single("audio"), async (req, res) => {
     const msg = err?.message || "Unknown error";
     if (msg.toLowerCase().includes("unsupported") || msg.toLowerCase().includes("format")) {
       return res.status(415).json({
-        error: "Unsupported Media Type. Only WAV files are supported in the Azure deployment version.",
+        error: "Unsupported Media Type. Only WAV files are supported in this version.",
         details: msg,
       });
     }
@@ -452,7 +445,7 @@ app.post("/process", upload.single("audio"), async (req, res) => {
     }
 
     uploadedPath = req.file.path;
-    const audioFormat = req.file.originalname.split(".").pop().toLowerCase();
+    const audioFormat = path.extname(req.file.originalname).replace(".", "").toLowerCase() || "wav";
 
     await tracer.startActiveSpan("pipeline.process", async (rootSpan) => {
       rootSpan.setAttribute("audio.format", audioFormat);
@@ -469,7 +462,7 @@ app.post("/process", upload.single("audio"), async (req, res) => {
             "stt.word_count",
             Array.isArray(result.words)
               ? result.words.length
-              : result.transcript.split(/\s+/).filter(Boolean).length
+              : (result.transcript || "").trim().split(/\s+/).filter(Boolean).length
           );
           sttSpan.setAttribute("duration_ms", sttMs);
           sttSpan.end();
@@ -561,12 +554,19 @@ app.post("/process", upload.single("audio"), async (req, res) => {
   } catch (err) {
     await safeDelete(uploadedPath);
 
-    emitPipelineEvent(null, null, req?.file?.originalname || "unknown", false, "process", err.message);
+    emitPipelineEvent(
+      null,
+      null,
+      req?.file?.originalname || "unknown",
+      false,
+      "process",
+      err.message
+    );
 
     const msg = err?.message || "Unknown error";
     if (msg.toLowerCase().includes("unsupported") || msg.toLowerCase().includes("format")) {
       return res.status(415).json({
-        error: "Unsupported Media Type. Only WAV files are supported in the Azure deployment version.",
+        error: "Unsupported Media Type. Only WAV files are supported in this version.",
         details: msg,
       });
     }

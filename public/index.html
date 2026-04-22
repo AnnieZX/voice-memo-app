@@ -25,6 +25,10 @@
       padding: 10px 14px;
       cursor: pointer;
     }
+    button:disabled {
+      cursor: not-allowed;
+      opacity: 0.6;
+    }
     .tag {
       display: inline-block;
       background: #eef2ff;
@@ -59,19 +63,23 @@
 </head>
 <body>
   <h1>Voice Memo Analyzer</h1>
-  <p class="muted">Upload a WAV/MP3 file and process it through Speech → Language → TTS.</p>
+  <p class="muted">
+    Record a short voice memo directly in the browser and process it through Speech → Language → TTS.
+  </p>
 
   <div class="card">
     <h2>Input</h2>
 
-    <p><strong>Upload a WAV or MP3 file:</strong></p>
-    <input type="file" id="audioFile" accept=".wav,.mp3,audio/wav,audio/mpeg" />
+    <p><strong>Record your voice memo directly in the browser:</strong></p>
 
     <div style="margin-top: 16px;">
-      <button id="submitBtn">Submit</button>
+      <button id="startBtn">Start Recording</button>
+      <button id="stopBtn" disabled>Stop Recording</button>
+      <button id="submitBtn" disabled>Submit Recording</button>
     </div>
 
-    <p id="selectedSource" class="muted">No file selected yet.</p>
+    <p id="selectedSource" class="muted">No recording yet.</p>
+    <audio id="recordedAudio" controls class="hidden" style="margin-top: 12px; width: 100%;"></audio>
   </div>
 
   <div class="card">
@@ -122,10 +130,12 @@
   </div>
 
   <script>
-    const audioFileInput = document.getElementById("audioFile");
+    const startBtn = document.getElementById("startBtn");
+    const stopBtn = document.getElementById("stopBtn");
     const submitBtn = document.getElementById("submitBtn");
     const selectedSource = document.getElementById("selectedSource");
     const statusText = document.getElementById("statusText");
+    const recordedAudio = document.getElementById("recordedAudio");
 
     const resultsSection = document.getElementById("resultsSection");
     const transcriptText = document.getElementById("transcriptText");
@@ -139,20 +149,152 @@
     const summaryText = document.getElementById("summaryText");
     const summaryAudio = document.getElementById("summaryAudio");
 
-    audioFileInput.addEventListener("change", function () {
-      const file = audioFileInput.files[0];
-      if (file) {
-        selectedSource.textContent = "Selected file: " + file.name;
-      } else {
-        selectedSource.textContent = "No file selected yet.";
+    let audioContext = null;
+    let mediaStream = null;
+    let sourceNode = null;
+    let processorNode = null;
+    let pcmChunks = [];
+    let recordedBlob = null;
+    let sampleRate = 44100;
+    let isRecording = false;
+
+    function mergeFloat32Arrays(chunks) {
+      let totalLength = 0;
+      for (const chunk of chunks) totalLength += chunk.length;
+
+      const result = new Float32Array(totalLength);
+      let offset = 0;
+
+      for (const chunk of chunks) {
+        result.set(chunk, offset);
+        offset += chunk.length;
       }
+
+      return result;
+    }
+
+    function floatTo16BitPCM(view, offset, input) {
+      for (let i = 0; i < input.length; i++, offset += 2) {
+        let s = Math.max(-1, Math.min(1, input[i]));
+        view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+      }
+    }
+
+    function writeString(view, offset, string) {
+      for (let i = 0; i < string.length; i++) {
+        view.setUint8(offset + i, string.charCodeAt(i));
+      }
+    }
+
+    function encodeWAV(samples, sampleRate) {
+      const buffer = new ArrayBuffer(44 + samples.length * 2);
+      const view = new DataView(buffer);
+
+      writeString(view, 0, "RIFF");
+      view.setUint32(4, 36 + samples.length * 2, true);
+      writeString(view, 8, "WAVE");
+      writeString(view, 12, "fmt ");
+      view.setUint32(16, 16, true);
+      view.setUint16(20, 1, true); // PCM
+      view.setUint16(22, 1, true); // mono
+      view.setUint32(24, sampleRate, true);
+      view.setUint32(28, sampleRate * 2, true); // byte rate
+      view.setUint16(32, 2, true); // block align
+      view.setUint16(34, 16, true); // bits per sample
+      writeString(view, 36, "data");
+      view.setUint32(40, samples.length * 2, true);
+
+      floatTo16BitPCM(view, 44, samples);
+
+      return new Blob([view], { type: "audio/wav" });
+    }
+
+    async function startRecording() {
+      try {
+        resultsSection.classList.add("hidden");
+        statusText.textContent = "Requesting microphone access...";
+
+        mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        audioContext = new AudioContextClass();
+        sampleRate = audioContext.sampleRate;
+
+        sourceNode = audioContext.createMediaStreamSource(mediaStream);
+        processorNode = audioContext.createScriptProcessor(4096, 1, 1);
+
+        pcmChunks = [];
+        recordedBlob = null;
+
+        processorNode.onaudioprocess = function (event) {
+          if (!isRecording) return;
+
+          const inputData = event.inputBuffer.getChannelData(0);
+          pcmChunks.push(new Float32Array(inputData));
+        };
+
+        sourceNode.connect(processorNode);
+        processorNode.connect(audioContext.destination);
+
+        isRecording = true;
+        startBtn.disabled = true;
+        stopBtn.disabled = false;
+        submitBtn.disabled = true;
+
+        recordedAudio.classList.add("hidden");
+        recordedAudio.removeAttribute("src");
+
+        selectedSource.textContent = "Recording in progress...";
+        statusText.textContent = "Recording...";
+      } catch (err) {
+        statusText.textContent = "Microphone access failed: " + err.message;
+      }
+    }
+
+    async function stopRecording() {
+      if (!isRecording) return;
+
+      isRecording = false;
+
+      if (processorNode) {
+        processorNode.disconnect();
+      }
+      if (sourceNode) {
+        sourceNode.disconnect();
+      }
+      if (mediaStream) {
+        mediaStream.getTracks().forEach(track => track.stop());
+      }
+      if (audioContext && audioContext.state !== "closed") {
+        await audioContext.close();
+      }
+
+      const mergedSamples = mergeFloat32Arrays(pcmChunks);
+      recordedBlob = encodeWAV(mergedSamples, sampleRate);
+
+      const audioUrl = URL.createObjectURL(recordedBlob);
+      recordedAudio.src = audioUrl;
+      recordedAudio.classList.remove("hidden");
+
+      startBtn.disabled = false;
+      stopBtn.disabled = true;
+      submitBtn.disabled = false;
+
+      selectedSource.textContent = "Recording ready to submit: recording.wav";
+      statusText.textContent = "Recording stopped.";
+    }
+
+    startBtn.addEventListener("click", async function () {
+      await startRecording();
+    });
+
+    stopBtn.addEventListener("click", async function () {
+      await stopRecording();
     });
 
     submitBtn.addEventListener("click", async function () {
-      const file = audioFileInput.files[0];
-
-      if (!file) {
-        statusText.textContent = "Please select a file first.";
+      if (!recordedBlob) {
+        statusText.textContent = "Please record audio first.";
         return;
       }
 
@@ -161,7 +303,7 @@
 
       try {
         const formData = new FormData();
-        formData.append("audio", file);
+        formData.append("audio", recordedBlob, "recording.wav");
 
         const response = await fetch("/process", {
           method: "POST",

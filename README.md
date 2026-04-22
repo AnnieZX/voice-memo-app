@@ -4,20 +4,27 @@
 
 This project implements a three-stage Azure AI pipeline:
 
-1. Speech-to-Text (STT) using Azure Speech
-2. Language Analysis using Azure AI Language
-3. Text-to-Speech (TTS) using Azure Neural Voice
+1. Speech-to-Text (STT) using Azure Speech  
+2. Language Analysis using Azure AI Language  
+3. Text-to-Speech (TTS) using Azure Neural Voice  
 
-The application also uses Azure Application Insights for observability, including request tracing, per-stage latency metrics, and the `/telemetry-summary` endpoint.
+The application also uses Azure Application Insights for observability, including:
+- request tracing  
+- per-stage latency metrics  
+- `/telemetry-summary` endpoint  
+
+---
 
 ## Project Files
 
-- `server.js` - local development server
-- `server_azure.js` - Azure deployment server
-- `telemetry.js` - Application Insights initialization
-- `public/` - frontend files
-- `.env.example` - example environment variables
-- `.gitignore` - ignored files and folders
+- `server.js` - local development server  
+- `server_azure.js` - Azure deployment server  
+- `telemetry.js` - Application Insights initialization  
+- `public/` - frontend files  
+- `.env.example` - example environment variables  
+- `.gitignore` - ignored files and folders  
+
+---
 
 ## Setup Instructions
 
@@ -26,13 +33,11 @@ The application also uses Azure Application Insights for observability, includin
 ```bash
 git clone https://github.com/AnnieZX/voice-memo-app.git
 cd voice-memo-app
-
-
 2. Install dependencies
 npm install
 3. Create environment variables
 
-Copy .env.example to .env and replace the placeholder values with your Azure credentials.
+Copy .env.example to .env and replace the placeholder values with your Azure credentials:
 
 cp .env.example .env
 4. Run locally
@@ -103,7 +108,10 @@ az webapp up \
   --runtime "NODE:20-lts" \
   --sku B1
 Important Notes
-Do not commit .env
-Do not commit Azure keys or credentials
-The .gitignore excludes .env, node_modules/, __pycache__/, and temp_audio/
-EOF
+Do NOT commit .env
+Do NOT commit Azure credentials or API keys
+.gitignore excludes:
+.env
+node_modules/
+__pycache__/
+temp_audio/

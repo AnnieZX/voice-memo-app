@@ -247,7 +247,4 @@ Application Insights is initialized in `telemetry.js` and is used for:
 
 ---
 
-## License
-
-Add your project license here (e.g., MIT) if applicable.
 
